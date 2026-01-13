@@ -128,26 +128,67 @@ This should read like a lab manual.
 
 ---
 
-## PART 6 — COMPUTATION VERIFICATION (OPTIONAL BUT STRONGLY RECOMMENDED)
+## PART 6 — COMPUTATION VERIFICATION (MANDATORY)
 
 Include a walkthrough section titled:
 **"Verify Your Understanding: Manual Convolution Calculation"**
 
 It must:
-- Pick one convolution operation (e.g., rectangle_1 at position [2,2], filter 0)
-- Show all 9 element-wise multiplications (3×3 kernel × 3×3 image patch)
-- Show the sum step-by-step
-- Display the expected value from the CSV
-- Compare (should match within 1e-4 tolerance)
+- Pick one convolution operation (e.g., rectangle_1 at position [0,0], filter 0)
+- Show the image patch (3×3 extracted from image)
+- Show the kernel (3×3)
+- Show all 9 element-wise multiplications explicitly (value1 × kernel1, value2 × kernel2, etc.)
+- Show the sum of the 9 products
+- Read the bias from code or compute it
+- Add the bias to the sum: `manual_result = sum_of_products + bias`
+- Load the expected value from CSV file (exact path shown)
+- Compare: `manual_result` vs `CSV_value`
+- Report: Match or mismatch with tolerance (1e-4)
 
-This transforms passive reading into active verification. High confidence that reader truly understands.
+Include a **REQUIRED SELF-CHECK TABLE** with these columns:
+
+| Stage | File Path | Expected Shape | Observed Shape | Min | Max | Sum (if applicable) | Pass/Fail | Notes |
+|-------|-----------|---|---|---|---|---|---|---|
+| Input | rectangle_1_01_pixels.csv | 8×8 | ? | ? | ? | N/A | ? | ? |
+| Conv F0 | rectangle_1_02_conv_f0.csv | 6×6 | ? | ? | ? | N/A | ? | ? |
+| ReLU F0 | rectangle_1_03_relu_f0.csv | 6×6 | ? | ? | ? | N/A | ? | ? |
+| Pool F0 | rectangle_1_04_pool_f0.csv | 3×3 | ? | ? | ? | N/A | ? | ? |
+| Flatten | rectangle_1_05_flat.csv | 1×18 | ? | ? | ? | N/A | ? | ? |
+| Logits | rectangle_1_06_logits.csv | 1×2 | ? | ? | ? | N/A | ? | ? |
+| Softmax | rectangle_1_07_softmax.csv | 1×2 | ? | ? | ? | **1.0** | ? | ✅ or ❌ |
+
+**For each row:** Fill in observed values from actual CSV. Report Pass only if shape matches AND (if applicable) constraints hold.
+
+This transforms passive reading into active verification and catches errors before they propagate.
 
 ---
 
-## PART 7 — BIG PICTURE SYNTHESIS
+## PART 7 — INFERENCE ON UNSEEN SHAPES (CONDITIONAL)
+
+**ONLY include this section if BOTH conditions are met:**
+1. The Python code generates square and pentagon images
+2. The output files `inference/square_1_inference_07_softmax.csv` and `inference/pentagon_1_inference_07_softmax.csv` exist in the repo
+
+If either condition is false, write:
+"**Inference on unseen shapes:** Not implemented in this version of the repository. To add this, generate square and pentagon images in the code and re-run."
+
+If both conditions are true, analyze:
+1. **One known shape** (e.g., rectangle_1): a shape from the training set
+2. **Square** (new): a shape structurally similar to rectangles but not in training data
+3. **Pentagon** (new): a shape structurally different from both training shapes
+
+For each inference image:
+- Show the softmax probabilities (must sum to 1.0)
+- Report which class it predicts
+- Analyze WHY (which features activated?)
+
+---
+
+## PART 8 — BIG PICTURE SYNTHESIS
 
 End with:
 - A one-paragraph mental model of CNNs
+
 - A bullet list of “things that look new but are not”
 - A bullet list of “things that are genuinely new vs tabular NN”
 
@@ -170,51 +211,118 @@ End with:
 - Do NOT skip steps or combine explanations into vague summaries
 - Do NOT simplify at the cost of correctness. Precision over brevity
 
+---
+
+# NON-NEGOTIABLE VALIDATION RULES (MUST FOLLOW)
+
+## Rule 1: Never Fabricate Values
+You MUST NOT fabricate values. Every numeric claim (min/max/mean/logits/softmax/loss) MUST be derived from actual repository artifacts:
+- The Python code OR
+- The generated CSV/TXT files
+
+If a value is not directly available, you must compute it from the files and show the exact file path used.
+**If you cannot cite a source, do not state the claim.**
+
+## Rule 2: Validate Shapes at Every Stage
+For each stage, explicitly state tensor shape and confirm it matches file dimensions:
+- **pixels:** 8×8 (64 values)
+- **conv:** 6×6 per filter (36 values per filter, 72 total for 2 filters)
+- **relu:** 6×6 per filter (36 values per filter)
+- **pool:** 3×3 per filter (9 values per filter, 18 total for 2 filters)
+- **flat:** 1×18 (exactly 18 values)
+- **logits:** 1×2 (exactly 2 values, one per class)
+- **softmax:** 1×2 (exactly 2 values, prob[0] + prob[1] must equal 1.0 ± 1e-6)
+
+If any mismatch occurs, diagnose it and do not proceed. Report the mismatch explicitly.
+
+## Rule 3: Enforce Probability Correctness
+- Softmax outputs MUST sum to 1.0 (tolerance: ±1e-6)
+- If softmax sum ≠ 1.0, treat it as an error and investigate immediately
+- Do NOT report softmax with sum < 1 or > 1
+
+## Rule 4: Keep Normalization Statements Consistent
+- If pixel values in CSV are 0–255, do NOT claim normalization to 0–1
+- If normalization is performed, show:
+  - The code line that performs it
+  - The min/max BEFORE normalization
+  - The min/max AFTER normalization
+- Do NOT use conflicting statements in the same section
+
+## Rule 5: Include Bias in All Computations
+- Convolution formula MUST include conv bias term
+- Dense layer formula MUST include bias
+- Manual convolution verification MUST include bias in the final sum
+- If bias values are not available, state this explicitly and note its impact
+
+## Rule 6: Do NOT Invent an Inference Pipeline
+Only include "inference on unseen shapes" if:
+- The code actually generates those shapes (check the script) AND
+- The outputs actually exist in the repo as CSV files (check the folder)
+
+Otherwise:
+- Omit inference entirely, OR
+- Write explicitly: "Not implemented in this repo yet" and do NOT guess what might happen
+
+## Rule 7: Parameter Counts MUST Match This Exact Model
+You MUST compute parameter counts from the actual architecture in code:
+```
+conv weights: 2 filters × 1 input × 3×3 kernel = 18
+conv bias: 2
+fc weights: 18 inputs × 2 outputs = 36
+fc bias: 2
+──────────────────────────────────
+TOTAL = 58 parameters
+```
+
+Do NOT compare to tabular models with arbitrary hidden sizes without explicit definition.
+If you compare to a "dense-only baseline," define it (e.g., "64→2 direct dense layer") and compute params correctly.
+
+---
+
+# EVIDENCE TAGGING REQUIREMENT
+
+Every factual claim MUST include an evidence tag showing its source.
+
+Use one of these formats at the end of the sentence or paragraph:
+- `[SOURCE: code: cnn_demo_toy_story_exhaustive.py:L<line>]`
+- `[SOURCE: file: cnn_demo_story_outputs_exhaustive/<filename>]`
+- `[SOURCE: computed from: <filepath> using <operation>]`
+
+Examples:
+- "Convolution output is 6×6 per filter [SOURCE: code: cnn_demo_toy_story_exhaustive.py:L42]"
+- "Rectangle_1 has 24 nonzero pixels [SOURCE: computed from: cnn_demo_story_outputs_exhaustive/rectangle_1_01_pixels.csv using count(nonzero)]"
+- "The softmax values are [0.9915, 0.0085] [SOURCE: file: cnn_demo_story_outputs_exhaustive/rectangle_1_07_softmax.csv]"
+
+**If you cannot attach a source tag, do not state the claim.**
+
+This is non-negotiable: evidence tags almost completely stop hallucinated numbers.
+
+---
 
 
-## PART 8  INFERENCE ON UNSEEN SHAPES
 
-Using the SAME trained model, analyze inference behavior on:
-1. **One known shape** (e.g., rectangle_1): a shape from the training set
-2. **Square** (new): a shape structurally similar to rectangles but not in training data
-3. **Pentagon** (new): a shape structurally different from both training shapes
+## PART 8 — BIG PICTURE SYNTHESIS (UPDATED)
 
-For each inference image:
-- Show the input pixels (88 grid)
-- Show the convolution outputs (2 filters, 66 each)
-- Show the ReLU activations (same shapes)
-- Show the pooled features (33 each)
-- Show the flattened vector (18 values)
-- Show the logits (2 raw prediction values)
-- Show the softmax probabilities (2 values summing to 1.0)
+End with:
+- A one-paragraph mental model of CNNs
+- A bullet list of "things that look new but are not"
+- A bullet list of "things that are genuinely new vs tabular NN"
 
-**Key Analysis Questions:**
-- How does the model's confidence differ between known rectangles and unseen squares?
-- Does the pentagon activate filters similarly to triangles? Why or why not?
-- Which filter (0 or 1) is more "rectangle-like" and which is more "triangle-like"?
-- What does the model's prediction on a square reveal about what features it learned?
-- How would this generalization inform deployment on real-world data?
+Include a **FINAL VALIDATION CHECKLIST** with 10 questions covering all PARTS that reader must answer with confidence.
 
-**Data Mapping for Inference:**
-- Use files in cnn_demo_story_outputs_exhaustive/inference/ folder
-- Filenames follow pattern: {shape}_{number}_inference_0X_*.csv
-- Files are structurally identical to training outputs (same column structure, same activation ranges)
-
-**Validation Note:** 
-For inference images, there is NO loss value (no ground truth labels). 
-Interpretation focus shifts from "was the prediction correct?" to "what does this prediction reveal about learned features?"
-
+---
 
 # SUCCESS CRITERION
 
 A reader who understands tabular neural networks should be able to:
-1. Explain every number produced by this code
-2. Manually compute at least one convolution dot product and verify against a CSV file
-3. Trace a single pixel difference from rectangle to triangle through all 8 layers
+1. Explain every number produced by this code (with evidence citations)
+2. Manually compute at least one convolution dot product, including bias, and verify against a CSV file using the self-check table
+3. Trace a single pixel difference from rectangle to triangle through all layers and report shape/value mismatches
 4. Describe exactly where CNNs diverge from tabular NNs (before flatten) and why they're identical after
-5. Answer all 10 validation checklist questions with confidence
+5. Pass the self-check table: all rows show observed shapes matching expected shapes, and softmax sums to 1.0
+6. Answer all 10 validation checklist questions with confidence
 
 Final statement of understanding:
-"I now understand CNNs, and I can explain every computation at every layer using data from this experiment."
+"I now understand CNNs, and I can explain every computation at every layer using data from this experiment, backed by evidence tags."
 
 ---
