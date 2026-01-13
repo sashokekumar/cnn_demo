@@ -66,5 +66,53 @@ label_df = pd.DataFrame({
 })
 label_df.to_csv(os.path.join(BASE_DIR, "labels.csv"), index=False)
 
+# ----- INFERENCE IMAGES (Square and Pentagon) -----
+# Create separate inference directory
+INFERENCE_DIR = "cnn_toy_data_inference"
+INFERENCE_IMG_DIR = os.path.join(INFERENCE_DIR, "images")
+os.makedirs(INFERENCE_IMG_DIR, exist_ok=True)
+
+inference_images = []
+
+# ----- SQUARE (new shape, unlabeled) -----
+square = np.zeros((8, 8))
+square[2:6, 2:6] = 255  # 4x4 square in center
+img_square = Image.fromarray(square.astype(np.uint8), mode="L")
+img_square.save(os.path.join(INFERENCE_IMG_DIR, "square_1.png"))
+pd.DataFrame(square).to_csv(
+    os.path.join(INFERENCE_DIR, "square_1.csv"),
+    index=False,
+    header=False
+)
+inference_images.append(("square_1", "new_shape"))
+
+# ----- PENTAGON (new shape, unlabeled) -----
+pentagon = np.zeros((8, 8))
+# Rough pentagon centered in 8x8 grid
+pentagon[1, 3:5] = 255       # Top point (row 1)
+pentagon[2, 2:6] = 255       # Upper sides
+pentagon[3, 2:6] = 255       # Middle
+pentagon[4, 1:7] = 255       # Wider middle
+pentagon[5, 1:7] = 255       # Lower middle
+pentagon[6, 2:6] = 255       # Lower sides
+img_pentagon = Image.fromarray(pentagon.astype(np.uint8), mode="L")
+img_pentagon.save(os.path.join(INFERENCE_IMG_DIR, "pentagon_1.png"))
+pd.DataFrame(pentagon).to_csv(
+    os.path.join(INFERENCE_DIR, "pentagon_1.csv"),
+    index=False,
+    header=False
+)
+inference_images.append(("pentagon_1", "new_shape"))
+
+# Save inference metadata
+inference_df = pd.DataFrame({
+    "image": [img[0] for img in inference_images],
+    "description": [img[1] for img in inference_images]
+})
+inference_df.to_csv(os.path.join(INFERENCE_DIR, "inference_images.csv"), index=False)
+
 print("Toy image dataset created successfully.")
 print(f"Base directory: {BASE_DIR}")
+print(f"Inference directory: {INFERENCE_DIR}")
+print("  - square_1.png (new shape)")
+print("  - pentagon_1.png (new shape)")

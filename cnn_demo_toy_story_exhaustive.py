@@ -468,5 +468,183 @@ This is a TOY example. Real CNNs have thousands to millions of parameters.
 But the principles are 100% identical.
 """)
 
-print("Exhaustive story-mode CNN demo complete.")
+# ============================================================
+# INFERENCE SECTION - NEW SHAPES (Square & Pentagon)
+# ============================================================
+print("\n" + "="*60)
+print("INFERENCE PHASE: Testing on unseen shapes")
+print("="*60)
+
+INFERENCE_DIR = "cnn_toy_data_inference"
+INFERENCE_OUT_DIR = os.path.join(OUT_DIR, "inference")
+os.makedirs(INFERENCE_OUT_DIR, exist_ok=True)
+
+# Load inference images
+inference_images = []
+inference_labels = []
+inference_names = []
+
+# Load one rectangle from training set (for comparison)
+rect_path = os.path.join(IMG_DIR, "rectangle_1.png")
+rect_img = Image.open(rect_path).convert("L")
+rect_data = np.array(rect_img) / 255.0
+inference_images.append(torch.tensor(rect_data, dtype=torch.float32).unsqueeze(0).unsqueeze(0))
+inference_names.append("rectangle_1_inference")
+inference_labels.append("known_shape")
+
+# Load square (new shape)
+square_path = os.path.join(INFERENCE_DIR, "images", "square_1.png")
+square_img = Image.open(square_path).convert("L")
+square_data = np.array(square_img) / 255.0
+inference_images.append(torch.tensor(square_data, dtype=torch.float32).unsqueeze(0).unsqueeze(0))
+inference_names.append("square_1_inference")
+inference_labels.append("new_shape")
+
+# Load pentagon (new shape)
+pentagon_path = os.path.join(INFERENCE_DIR, "images", "pentagon_1.png")
+pentagon_img = Image.open(pentagon_path).convert("L")
+pentagon_data = np.array(pentagon_img) / 255.0
+inference_images.append(torch.tensor(pentagon_data, dtype=torch.float32).unsqueeze(0).unsqueeze(0))
+inference_names.append("pentagon_1_inference")
+inference_labels.append("new_shape")
+
+# Run inference on all three images
+model.eval()
+with torch.no_grad():
+    for img_tensor, img_name, img_label in zip(inference_images, inference_names, inference_labels):
+        # Forward pass - capture intermediate outputs
+        input_pixels = img_tensor.squeeze().numpy()
+        
+        # Conv layer
+        conv_out = model.conv1(img_tensor)
+        
+        # ReLU
+        relu_out = F.relu(conv_out)
+        
+        # Pooling
+        pool_out = model.pool(relu_out)
+        
+        # Flatten
+        flatten_out = pool_out.view(pool_out.size(0), -1)
+        
+        # Logits
+        logits = model.fc(flatten_out)
+        
+        # Softmax
+        softmax_out = torch.softmax(logits, dim=1)
+        
+        # Loss (dummy - inference doesn't have ground truth)
+        loss_value = "N/A (inference mode)"
+        
+        # Save outputs
+        for f in range(2):
+            conv_data = conv_out[0, f, :, :].numpy()
+            pd.DataFrame(conv_data).to_csv(
+                os.path.join(INFERENCE_OUT_DIR, f"{img_name}_02_conv_filter{f}.csv"),
+                index=False, header=False, encoding="utf-8"
+            )
+            
+            relu_data = relu_out[0, f, :, :].numpy()
+            pd.DataFrame(relu_data).to_csv(
+                os.path.join(INFERENCE_OUT_DIR, f"{img_name}_03_relu_filter{f}.csv"),
+                index=False, header=False, encoding="utf-8"
+            )
+            
+            pool_data = pool_out[0, f, :, :].numpy()
+            pd.DataFrame(pool_data).to_csv(
+                os.path.join(INFERENCE_OUT_DIR, f"{img_name}_04_pool_filter{f}.csv"),
+                index=False, header=False, encoding="utf-8"
+            )
+        
+        # Save input
+        pd.DataFrame(input_pixels).to_csv(
+            os.path.join(INFERENCE_OUT_DIR, f"{img_name}_01_input_pixels.csv"),
+            index=False, header=False, encoding="utf-8"
+        )
+        
+        # Save flattened
+        pd.DataFrame(flatten_out.numpy()).to_csv(
+            os.path.join(INFERENCE_OUT_DIR, f"{img_name}_05_flatten.csv"),
+            index=False, header=False, encoding="utf-8"
+        )
+        
+        # Save logits
+        pd.DataFrame(logits.numpy()).to_csv(
+            os.path.join(INFERENCE_OUT_DIR, f"{img_name}_06_logits.csv"),
+            index=False, header=False, encoding="utf-8"
+        )
+        
+        # Save softmax
+        pd.DataFrame(softmax_out.numpy()).to_csv(
+            os.path.join(INFERENCE_OUT_DIR, f"{img_name}_07_softmax.csv"),
+            index=False, header=False, encoding="utf-8"
+        )
+
+# Append inference section to STORY.md
+with open(os.path.join(OUT_DIR, "STORY.md"), "a", encoding="utf-8") as f:
+    f.write("\n\n" + "="*70 + "\n")
+    f.write("## INFERENCE SECTION: How Does the Model Generalize?\n")
+    f.write("="*70 + "\n\n")
+    f.write("### What is Inference?\n")
+    f.write("Training teaches the model to recognize patterns.\n")
+    f.write("Inference tests those learned patterns on new, unseen data.\n")
+    f.write("We test on:\n")
+    f.write("- 1 known rectangle (from training set) - should confidently predict class 0\n")
+    f.write("- 1 square (NEW shape) - never seen during training\n")
+    f.write("- 1 pentagon (NEW shape) - never seen during training\n\n")
+    
+    f.write("### Inference Results\n\n")
+    
+    # Generate inference comparison
+    model.eval()
+    with torch.no_grad():
+        for img_tensor, img_name, img_label in zip(inference_images, inference_names, inference_labels):
+            logits = model.fc(model.pool(F.relu(model.conv1(img_tensor))).view(img_tensor.size(0), -1))
+            softmax_out = torch.softmax(logits, dim=1)
+            pred_class = torch.argmax(softmax_out, dim=1).item()
+            conf_0 = softmax_out[0, 0].item()
+            conf_1 = softmax_out[0, 1].item()
+            
+            f.write(f"\n#### {img_name.replace('_inference', '').upper()} ({img_label})\n")
+            f.write(f"Predicted class: {pred_class}\n")
+            f.write(f"- Class 0 (rectangle) confidence: {conf_0:.4f}\n")
+            f.write(f"- Class 1 (triangle) confidence: {conf_1:.4f}\n")
+            f.write(f"Interpretation: ")
+            if img_label == "known_shape":
+                f.write("TRAINING DATA - model has already learned this shape's pattern.\n")
+            else:
+                if pred_class == 0:
+                    f.write(f"Model predicts RECTANGLE-LIKE. This {img_name.split('_')[0]} is {conf_0-conf_1:.4f} more rectangle-like than triangle-like.\n")
+                else:
+                    f.write(f"Model predicts TRIANGLE-LIKE. This {img_name.split('_')[0]} is {conf_1-conf_0:.4f} more triangle-like than rectangle-like.\n")
+    
+    f.write("\n### Key Insights\n")
+    f.write("1. **Known shapes** (rectangle): Model confidently applies learned patterns.\n")
+    f.write("2. **Squares**: Rectangular structure → likely classified as rectangles (similar geometry).\n")
+    f.write("3. **Pentagons**: Unique geometry → model must extrapolate from learned rectangle/triangle patterns.\n")
+    f.write("4. **Generalization**: Model's confidence on new shapes reveals what features it learned.\n")
+    f.write("   - High confidence on squares suggests the model learned 'rectangular' features.\n")
+    f.write("   - Confidence on pentagons depends on their similarity to training shapes.\n\n")
+    
+    f.write("### Files Generated (Inference)\n")
+    f.write("For each inference image, we save the SAME intermediate outputs as training:\n")
+    f.write("- `*_01_input_pixels.csv` - Raw input (8×8 matrix)\n")
+    f.write("- `*_02_conv_filter0.csv`, `*_02_conv_filter1.csv` - Convolution outputs (6×6 each)\n")
+    f.write("- `*_03_relu_filter0.csv`, `*_03_relu_filter1.csv` - ReLU activations (6×6 each)\n")
+    f.write("- `*_04_pool_filter0.csv`, `*_04_pool_filter1.csv` - Pooled features (3×3 each)\n")
+    f.write("- `*_05_flatten.csv` - Flattened vector (18 values)\n")
+    f.write("- `*_06_logits.csv` - Raw predictions (2 values)\n")
+    f.write("- `*_07_softmax.csv` - Probabilities (2 values summing to 1.0)\n\n")
+    
+    f.write("### Comparing Inference vs Training Evaluation\n")
+    f.write("**Training/Eval Mode:** Model has seen these exact images during training.\n")
+    f.write("**Inference Mode:** Model has NEVER seen squares or pentagons before.\n")
+    f.write("The model's predictions on new shapes reveal:\n")
+    f.write("- Which features generalize (learned true patterns)\n")
+    f.write("- Which features are brittle (fitted to training specifics)\n")
+    f.write("- How well the model would perform on real deployment data\n")
+
+print("Inference section complete.")
+
+print("\nExhaustive story-mode CNN demo complete.")
 print("Start with STORY.md")

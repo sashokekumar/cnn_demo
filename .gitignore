@@ -213,6 +213,8 @@ cnn_demo_outputs_verbose/
 #cnn_demo_outputs_*/
 cnn_demo_story_outputs_exhaustive/
 cnn_demo_story_outputs/
+*inference/
 
 # Generated guides
 CNN_DEEP_UNDERSTANDING_GUIDE.md
+create_instructional_guide.py

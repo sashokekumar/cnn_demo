@@ -170,6 +170,41 @@ End with:
 - Do NOT skip steps or combine explanations into vague summaries
 - Do NOT simplify at the cost of correctness. Precision over brevity
 
+
+
+## PART 8  INFERENCE ON UNSEEN SHAPES
+
+Using the SAME trained model, analyze inference behavior on:
+1. **One known shape** (e.g., rectangle_1): a shape from the training set
+2. **Square** (new): a shape structurally similar to rectangles but not in training data
+3. **Pentagon** (new): a shape structurally different from both training shapes
+
+For each inference image:
+- Show the input pixels (88 grid)
+- Show the convolution outputs (2 filters, 66 each)
+- Show the ReLU activations (same shapes)
+- Show the pooled features (33 each)
+- Show the flattened vector (18 values)
+- Show the logits (2 raw prediction values)
+- Show the softmax probabilities (2 values summing to 1.0)
+
+**Key Analysis Questions:**
+- How does the model's confidence differ between known rectangles and unseen squares?
+- Does the pentagon activate filters similarly to triangles? Why or why not?
+- Which filter (0 or 1) is more "rectangle-like" and which is more "triangle-like"?
+- What does the model's prediction on a square reveal about what features it learned?
+- How would this generalization inform deployment on real-world data?
+
+**Data Mapping for Inference:**
+- Use files in cnn_demo_story_outputs_exhaustive/inference/ folder
+- Filenames follow pattern: {shape}_{number}_inference_0X_*.csv
+- Files are structurally identical to training outputs (same column structure, same activation ranges)
+
+**Validation Note:** 
+For inference images, there is NO loss value (no ground truth labels). 
+Interpretation focus shifts from "was the prediction correct?" to "what does this prediction reveal about learned features?"
+
+
 # SUCCESS CRITERION
 
 A reader who understands tabular neural networks should be able to:
@@ -181,3 +216,5 @@ A reader who understands tabular neural networks should be able to:
 
 Final statement of understanding:
 "I now understand CNNs, and I can explain every computation at every layer using data from this experiment."
+
+---
