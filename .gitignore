@@ -205,3 +205,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Generated data and outputs
+cnn_toy_data/
+cnn_demo_outputs/
+cnn_demo_outputs_verbose/
