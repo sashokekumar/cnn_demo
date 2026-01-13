@@ -157,9 +157,45 @@ Include a **REQUIRED SELF-CHECK TABLE** with these columns:
 | Logits | rectangle_1_06_logits.csv | 1×2 | ? | ? | ? | N/A | ? | ? |
 | Softmax | rectangle_1_07_softmax.csv | 1×2 | ? | ? | ? | **1.0** | ? | ✅ or ❌ |
 
-**For each row:** Fill in observed values from actual CSV. Report Pass only if shape matches AND (if applicable) constraints hold.
+### Self-Check Table Completion Rule (STRICT)
 
-This transforms passive reading into active verification and catches errors before they propagate.
+**Every cell in the REQUIRED SELF-CHECK TABLE must be filled.**
+
+Rules:
+- No placeholders ("?", "N/A" except where explicitly allowed)
+- No inferred values
+- No skipped rows
+- **Pass = TRUE only if:**
+  - Observed shape exactly matches expected shape
+  - AND all numeric constraints are satisfied (e.g., softmax sum = 1.0)
+
+**If any row fails:**
+- Mark Fail with ❌
+- Explain why (shape mismatch, constraint violated, etc.)
+- Do NOT continue to later sections until root cause is identified
+
+**Why this matters:**
+- Forces actual file inspection
+- Stops "ceremonial tables" (tables filled to look complete but not verified)
+- Turns the doc into a real lab report, not performance theater
+
+## Fail-Fast Enforcement Rule
+
+If ANY of the following occur:
+- Shape mismatch
+- Softmax sum ≠ 1.0
+- Missing evidence tag
+- Missing bias verification
+- Untraceable artifact
+- Aggregation without numerator/denominator
+
+You MUST:
+1. Stop generating further sections
+2. Clearly label the output: **"❌ VALIDATION FAILED"**
+3. List the blocking issues
+4. Do NOT continue analysis until resolved
+
+**Why this matters:** You want fail-fast behavior, not graceful degradation. One unvalidated claim stops the entire document.
 
 ---
 
@@ -222,7 +258,19 @@ You MUST NOT fabricate values. Every numeric claim (min/max/mean/logits/softmax/
 
 If a value is not directly available, you must compute it from the files and show the exact file path used.
 **If you cannot cite a source, do not state the claim.**
+## Rule 1.1: Explicit Aggregation Rule
 
+Any aggregated statistic (count, percentage, mean, max, min) MUST include:
+- The exact operation used (e.g., count(x < 0))
+- The total population size
+- The file path used
+
+Example (required format):
+"25 values were zeroed (25/36 = 69.4%) [SOURCE: computed from rectangle_1_03_relu_f0.csv using count(value == 0)]"
+
+Do NOT report derived statistics without showing: numerator, denominator, and computation rule.
+
+**Why this matters:** Aggregation is where hallucinations sneak in. Without explicit numerators/denominators, percentages become unverifiable.
 ## Rule 2: Validate Shapes at Every Stage
 For each stage, explicitly state tensor shape and confirm it matches file dimensions:
 - **pixels:** 8×8 (64 values)
@@ -235,10 +283,74 @@ For each stage, explicitly state tensor shape and confirm it matches file dimens
 
 If any mismatch occurs, diagnose it and do not proceed. Report the mismatch explicitly.
 
+## Rule 2.2: Dimension Order Declaration (MANDATORY)
+
+Whenever a tensor shape is stated, you MUST declare dimension order.
+
+Example (required):
+- Input tensor: (1, 1, 8, 8) = (batch, channel, height, width)
+- Conv output: (1, 2, 6, 6) = (batch, filters, height, width)
+- Flattened: (1, 18) = (batch, features)
+
+Do NOT list shapes without naming dimensions.
+If dimension order is unclear, stop and inspect the code.
+
+**Why this matters:** CNN confusion often comes from silently switching between (H, W), (C, H, W), and (N, C, H, W). Forcing dimension names prevents silent errors.
+
+## Rule 2.1: Sign-Sensitive Activation Analysis (MANDATORY)
+When analyzing convolution or ReLU outputs, you MUST:
+
+- **Report presence of negative values** before ReLU (exact count and range)
+- **Report how many values are zeroed by ReLU** (show: "X values → 0")
+- **Explain how sign changes affect downstream pooling** (max ignores negatives)
+- **Tie ReLU effect to actual CSV values**, not generic description
+
+**Example (REQUIRED FORMAT):**
+```
+Conv F0 output: Min=-126.2, Max=73.4 (36 values total)
+- Negative values: 12 (range -126.2 to -0.001)
+- Non-negative: 24
+
+After ReLU:
+- Values zeroed: 12 (the negatives)
+- Values unchanged: 24 (non-negatives)
+- New Min: 0.0, New Max: 73.4 (same)
+
+Effect: ReLU acts as a **sign gate**, eliminating 33% of information
+```
+
+**Do NOT describe ReLU generically ("adds nonlinearity").** 
+Always tie explanation to actual numeric sign changes observed in CSV files.
+
+**Why this matters:**
+- Prevents shallow ReLU explanations
+- Forces attention to negative activations (common confusion point)
+- Connects math → data → intuition
+
 ## Rule 3: Enforce Probability Correctness
 - Softmax outputs MUST sum to 1.0 (tolerance: ±1e-6)
 - If softmax sum ≠ 1.0, treat it as an error and investigate immediately
 - Do NOT report softmax with sum < 1 or > 1
+
+## Rule 3.1: Class Index Semantics (MANDATORY)
+You MUST explicitly define class index meaning before interpreting logits or softmax.
+
+**Define class mapping (MUST match labels.csv):**
+- class 0 = rectangle
+- class 1 = triangle
+
+**Whenever logits or softmax are shown:**
+- Explicitly label each value by class name
+- Example: `logits = [6.27 (rectangle), 1.55 (triangle)]`
+- Example: `softmax = [0.991 (rectangle), 0.009 (triangle)] → Predicted: rectangle (class 0)`
+
+**Do NOT assume the reader knows index meaning.**
+If class semantics are unclear, stop and inspect labels.csv before proceeding.
+
+**Why this matters:**
+- Prevents silently flipped interpretations
+- Forces grounding in labels.csv
+- Makes causal explanations reliable
 
 ## Rule 4: Keep Normalization Statements Consistent
 - If pixel values in CSV are 0–255, do NOT claim normalization to 0–1
@@ -253,6 +365,27 @@ If any mismatch occurs, diagnose it and do not proceed. Report the mismatch expl
 - Dense layer formula MUST include bias
 - Manual convolution verification MUST include bias in the final sum
 - If bias values are not available, state this explicitly and note its impact
+
+## Rule 5.1: Bias Verification Requirement (MANDATORY)
+When including a bias term in any formula, you MUST:
+
+1. **Show the exact code location** where the bias is defined
+2. **Extract or display the numeric bias value** (if available)
+3. **State whether the bias is shared or per-output**
+
+**Examples:**
+- Conv bias: `model.conv1.bias[f]` → `bias = [0.1234, -0.0567]`
+- Dense bias: `model.fc.bias[c]` → `bias[0] = 0.05432, bias[1] = -0.0321`
+
+**If bias values are not printed to CSV:**
+- State this explicitly: "Bias values not available in CSV outputs. Accessed from model.conv1.bias."
+- Do NOT silently assume bias = 0
+- Do NOT add "+ bias" without verification
+
+**Why this matters:**
+- Prevents "phantom bias" (terms that exist in formula but not in numbers)
+- Forces alignment with actual PyTorch tensors
+- Makes manual verification meaningful and checkable
 
 ## Rule 6: Do NOT Invent an Inference Pipeline
 Only include "inference on unseen shapes" if:
@@ -277,7 +410,62 @@ TOTAL = 58 parameters
 Do NOT compare to tabular models with arbitrary hidden sizes without explicit definition.
 If you compare to a "dense-only baseline," define it (e.g., "64→2 direct dense layer") and compute params correctly.
 
----
+## Rule 8: Code–Artifact Bijection (MANDATORY)
+
+For every CSV or TXT file referenced, you MUST:
+
+1. Identify the exact code line(s) that generated it
+2. Show the variable name used at generation time
+3. State the operation that produced it (e.g., conv, relu, pool)
+
+Example (required format):
+- File: rectangle_1_02_conv_f0.csv
+- Generated by: conv = model.conv1(x)
+- Code location: cnn_demo_toy_story_exhaustive.py:L92
+- Variable used: conv[0, 0, :, :] (filter 0, all spatial positions)
+
+If a file cannot be traced to a specific code line, DO NOT interpret it. Stop and report missing provenance.
+
+**Why this matters:** Without code–artifact mapping, "semantic guessing" becomes possible. You want a one-to-one mapping: every artifact has a generating code line.
+
+## Final Sanity Rule: Hallucination Kill Switch
+
+**If any statement in this document would change when re-running the code, it MUST be marked as run-dependent or omitted.**
+
+**Examples of claims that MUST be flagged or omitted:**
+- "Kernel [0,0] = 0.1234" (changes every run due to random init)
+- "Filter 0 activates more for rectangles" (depends on random kernel initialization)
+- "Conv bias = 0.05" (changes every run)
+
+**Allowed run-independent claims:**
+- "Input is 8×8" (architectural constant)
+- "ReLU zeros 25 negative values" (consistent given fixed random seed)
+- "Softmax sums to 1.0" (mathematical invariant)
+
+**Why this matters:**
+- Stops overgeneralization of random initialization behavior
+- Prevents claims that look eternal but are actually ephemeral
+- Keeps the guide valid after future re-runs
+
+## Rule 9: Anti-Anthropomorphism Rule
+
+Do NOT use language implying intent, understanding, or learning.
+
+**Forbidden phrases:**
+- "the model learns"
+- "the network understands"
+- "the filter detects"
+- "the CNN recognizes"
+- "the activation shows the network found..."
+
+**Required replacements:**
+- "produces higher activation"
+- "yields larger dot products"
+- "results in non-zero outputs"
+- "maps input patterns to activations"
+- "the filter weights produce larger responses for..."
+
+**Why this matters:** This experiment uses randomly initialized weights. All behavior is mechanical computation, not learned intelligence. Language must reflect this distinction. Anthropomorphic language is misleading and violates Rule 7 (no run-dependent claims implying agency).
 
 # EVIDENCE TAGGING REQUIREMENT
 
