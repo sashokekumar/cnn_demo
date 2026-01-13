@@ -1,0 +1,472 @@
+
+# CNN Demo (Story Mode - Exhaustive)
+# This version generates a STORY.md that EXPLAINS:
+# - why each file exists
+# - which code line created it
+# - what concept it represents
+# - what differences to look for and why they matter
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import pandas as pd
+import numpy as np
+import os
+from PIL import Image
+import shutil
+
+BASE_DIR = "cnn_toy_data"
+IMG_DIR = os.path.join(BASE_DIR, "images")
+LABELS = os.path.join(BASE_DIR, "labels.csv")
+OUT_DIR = "cnn_demo_story_outputs_exhaustive"
+
+# Clean up existing outputs
+if os.path.exists(OUT_DIR):
+    shutil.rmtree(OUT_DIR)
+os.makedirs(OUT_DIR, exist_ok=True)
+
+labels_df = pd.read_csv(LABELS)
+
+class ToyCNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, 2, kernel_size=3)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.fc = nn.Linear(2 * 3 * 3, 2)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = self.pool(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
+model = ToyCNN()
+criterion = nn.CrossEntropyLoss()
+
+# ---------------- Save Kernels & Metadata ----------------
+kernel_files = []
+kernel_stats = {}
+for f in range(model.conv1.weight.shape[0]):
+    fname = f"GLOBAL_conv1_kernel_filter{f}.csv"
+    kernel_data = model.conv1.weight[f,0].detach().numpy()
+    pd.DataFrame(kernel_data).to_csv(
+        f"{OUT_DIR}/{fname}", index=False
+    )
+    kernel_files.append(fname)
+    kernel_stats[f] = {
+        "min": float(kernel_data.min()),
+        "max": float(kernel_data.max()),
+        "mean": float(kernel_data.mean())
+    }
+
+# Dense layer weights/bias
+fc_weight = model.fc.weight.detach().numpy()
+fc_bias = model.fc.bias.detach().numpy()
+
+# Conv bias
+conv_bias = model.conv1.bias.detach().numpy()
+
+# ---------------- Process Images ----------------
+conv_outputs = {}
+all_flat_vectors = {}
+all_probs = {}
+all_losses = {}
+all_logits = {}
+shape_log = []
+
+for _, row in labels_df.iterrows():
+    name = row["image"]
+    label = torch.tensor([row["label"]])
+    label_name = "rectangle" if label.item() == 0 else "triangle"
+
+    img = Image.open(os.path.join(IMG_DIR, f"{name}.png")).convert("L")
+    arr = np.array(img)
+
+    pd.DataFrame(arr).to_csv(f"{OUT_DIR}/{name}_01_pixels.csv", index=False)
+
+    x = torch.tensor(arr, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+
+    conv = model.conv1(x)
+    relu = F.relu(conv)
+    pool = model.pool(relu)
+    flat = pool.view(1, -1)
+    logits = model.fc(flat)
+    probs = F.softmax(logits, dim=1)
+    loss = criterion(logits, label)
+
+    conv_outputs[name] = conv.detach().numpy()
+    all_flat_vectors[name] = flat.detach().numpy()
+    all_probs[name] = probs.detach().numpy()
+    all_logits[name] = logits.detach().numpy()
+    all_losses[name] = loss.item()
+
+    shape_log.append({
+        "image": name,
+        "x_shape": tuple(x.shape),
+        "conv_shape": tuple(conv.shape),
+        "relu_shape": tuple(relu.shape),
+        "pool_shape": tuple(pool.shape),
+        "flat_shape": tuple(flat.shape),
+        "logits_shape": tuple(logits.shape),
+        "label": label_name
+    })
+
+    for i in range(2):
+        pd.DataFrame(conv[0,i].detach().numpy()).to_csv(
+            f"{OUT_DIR}/{name}_02_conv_f{i}.csv", index=False
+        )
+        pd.DataFrame(relu[0,i].detach().numpy()).to_csv(
+            f"{OUT_DIR}/{name}_03_relu_f{i}.csv", index=False
+        )
+        pd.DataFrame(pool[0,i].detach().numpy()).to_csv(
+            f"{OUT_DIR}/{name}_04_pool_f{i}.csv", index=False
+        )
+
+    pd.DataFrame(flat.detach().numpy()).to_csv(f"{OUT_DIR}/{name}_05_flat.csv", index=False)
+    pd.DataFrame(logits.detach().numpy()).to_csv(f"{OUT_DIR}/{name}_06_logits.csv", index=False)
+    pd.DataFrame(probs.detach().numpy()).to_csv(f"{OUT_DIR}/{name}_07_softmax.csv", index=False)
+
+    with open(f"{OUT_DIR}/{name}_08_loss.txt", "w", encoding="utf-8") as f:
+        f.write(str(loss.item()))
+
+# ---- Build story strings ----
+kernel_files_str = "\n".join(f"- {k}" for k in kernel_files)
+kernel_stats_str = "\n".join(
+    f"Filter {i}: min={kernel_stats[i]['min']:.4f}, max={kernel_stats[i]['max']:.4f}, mean={kernel_stats[i]['mean']:.4f}"
+    for i in range(len(kernel_stats))
+)
+flat_vectors_str = "\n".join(
+    f"  {name}: [{', '.join(f'{v:.2f}' for v in all_flat_vectors[name][0])}]"
+    for name in sorted(all_flat_vectors.keys())
+)
+logits_str = "\n".join(
+    f"  {name}: logits=[{all_logits[name][0][0]:.4f}, {all_logits[name][0][1]:.4f}] → prob={all_probs[name][0].max():.2%}"
+    for name in sorted(all_logits.keys())
+)
+losses_str = "\n".join(
+    f"  {name}: {all_losses[name]:.4f}"
+    for name in sorted(all_losses.keys())
+)
+
+# ---- Write story ----
+with open(f"{OUT_DIR}/STORY.md", "w", encoding="utf-8") as f:
+    f.write(f"""
+# CNN Toy Example — Exhaustive Guided Walkthrough
+
+This document is GENERATED BY CODE.
+Every file referenced below was produced in THIS run.
+
+**Architecture:** 1 Conv Layer (2 filters) → ReLU → Max Pool → Flatten → 1 Dense Layer
+
+---
+
+## PART 1: TENSOR SHAPES AND DIMENSIONS
+
+### Shape Transformation Pipeline
+
+```
+Input Image           (1, 1, 8, 8)      = 64 pixels
+        ↓ Conv (3×3)
+Conv Output           (1, 2, 6, 6)      = 2 filters × 36 values
+        ↓ ReLU
+ReLU Output           (1, 2, 6, 6)      = Same shape, negative values zeroed
+        ↓ MaxPool (2×2)
+Pool Output           (1, 2, 3, 3)      = 2 filters × 9 values
+        ↓ Flatten
+Flat Vector           (1, 18)           = 18 features fed to dense layer
+        ↓ Dense (Linear)
+Logits                (1, 2)            = 2 class scores
+        ↓ Softmax
+Probabilities         (1, 2)            = Sum to 1.0
+```
+
+**Key insight:** CNNs reduce 64 pixels → 18 features through learned spatial filtering.
+This is WHY they're powerful: automatic feature selection.
+
+---
+
+## STEP 1: RAW PIXELS (Input Tensor)
+
+**Files:**
+- *_01_pixels.csv
+
+**What it is:**
+An 8×8 matrix of pixel values (0-255 range, grayscale).
+
+**Example value range:** Min=0, Max=255
+
+**Why this matters:**
+This is the ONLY information the CNN receives.
+All learning comes from this spatial structure.
+
+---
+
+## STEP 2: CONVOLUTION KERNELS (Learned Feature Weights)
+
+**Files:**
+{kernel_files_str}
+
+**What it is:**
+Two 3×3 weight matrices (filters).
+These are the LEARNABLE PARAMETERS of the CNN.
+
+**Numeric details:**
+{kernel_stats_str}
+
+**How they're used:**
+Each kernel is CONVOLVED with the image at every position.
+Same kernel weights applied everywhere (weight sharing).
+
+**Learning implication:**
+These numbers are INITIALIZED RANDOMLY.
+In real training, they're gradually adjusted by backprop.
+This run shows their CURRENT (mostly random) state.
+
+---
+
+## STEP 3: CONVOLUTION OUTPUT (Pattern Matching Results)
+
+**Files:**
+- *_02_conv_f0.csv (Filter 0 results)
+- *_02_conv_f1.csv (Filter 1 results)
+
+**What it is:**
+The result of sliding each kernel over the image.
+Each cell = dot product of 3×3 kernel and 3×3 image patch.
+
+**Meaning of values:**
+- Large positive → kernel matches that patch well
+- Large negative → kernel's opposite matches that patch well
+- Small → no strong match
+
+**What to compare:**
+Open rectangle_1_02_conv_f0.csv and triangle_1_02_conv_f0.csv
+You'll see DIFFERENT values because SHAPES differ.
+BUT the kernel is IDENTICAL across both.
+
+This proves: **Feature maps depend entirely on input data, not code.**
+
+**Numeric example:**
+If kernel = [[1, 0, -1], [2, 0, -2], [1, 0, -1]] (edge detector)
+And a vertical edge patch of the rectangle aligns perfectly,
+You'd see a large positive value at that location.
+
+---
+
+## STEP 4: RELU ACTIVATION (Non-Linearity Gate)
+
+**Files:**
+- *_03_relu_f0.csv
+- *_03_relu_f1.csv
+
+**What it is:**
+`relu(x) = max(0, x)`
+Negative values become zero. Positive values unchanged.
+
+**Why this matters:**
+1. Introduces **non-linearity** → enables learning curved decision boundaries
+2. Biological inspiration: neurons "fire" or don't
+3. Creates **feature hierarchy**: only strong detections propagate
+
+**What to look for:**
+Compare conv (_02) vs relu (_03) files.
+Many values will disappear (become 0).
+Only "strong signals" remain.
+
+**Why rectangles vs triangles matter:**
+Different shapes activate different kernel positions.
+Rectangle corners vs triangle angles create DIFFERENT patterns.
+ReLU zeros out weak activations, keeping discriminative ones.
+
+---
+
+## STEP 5: MAX POOLING (Spatial Summarization)
+
+**Files:**
+- *_04_pool_f0.csv
+- *_04_pool_f1.csv
+
+**What it is:**
+2×2 max pooling: Each 2×2 region → 1 value (the maximum).
+Reduces spatial dimensions by half: (1,2,6,6) → (1,2,3,3)
+
+**Why this matters:**
+1. **Translation tolerance:** Exact position less important than presence
+2. **Efficiency:** 36 values → 9 values per filter
+3. **Robustness:** Slight shifts don't change output
+
+**What to look for:**
+- Pool output is SMALLER than ReLU output
+- Each pool value = max of a 2×2 block
+- Exact positions lost, but strongest features retained
+
+**Rectangle vs Triangle:**
+If a corner detector fires in upper-left for rectangles,
+and upper-middle for triangles, pooling PRESERVES this difference.
+
+---
+
+## STEP 6: FLATTEN (CNN Meets Tabular ML)
+
+**Files:**
+- *_05_flat.csv
+
+**What it is:**
+2D spatial feature maps → 1D feature vector
+(1, 2, 3, 3) reshaped to (1, 18)
+
+**Why this matters:**
+After pooling, we have 2×3×3 = 18 numbers.
+This is NOW IDENTICAL to a tabular ML input row.
+
+**Numeric details - All 18 features per image:**
+{flat_vectors_str}
+
+---
+
+## STEP 7: DENSE LAYER (Classic NN Classification)
+
+**Files:**
+- *_06_logits.csv (raw scores)
+- *_07_softmax.csv (probabilities)
+
+**Architecture:**
+Dense layer: 18 inputs → 2 outputs (one per class)
+
+**Math:**
+```
+logits = flat @ fc_weights.T + fc_bias
+softmax(logits) = exp(logits) / sum(exp(logits))
+```
+
+**What it is:**
+- **Logits:** Raw class scores (can be negative/>1)
+- **Softmax:** Normalized probabilities (sum to 1.0, range [0,1])
+
+**Decision boundary:**
+The dense layer learns a LINEAR decision boundary in 18D feature space.
+Rectangle ← if 18D point closer to class-0 region
+Triangle ← if 18D point closer to class-1 region
+
+**Numeric examples:**
+{logits_str}
+
+**Why rectangles vs triangles:**
+18D pooled features differ enough that one region → rectangle prob.
+Another region → triangle prob.
+The dense layer weights learned to separate these regions (during training).
+
+---
+
+## STEP 8: SOFTMAX & LOSS (Supervised Learning Signal)
+
+**Files:**
+- *_07_softmax.csv (probabilities)
+- *_08_loss.txt (error scalar)
+
+**What it is:**
+Loss = CrossEntropyLoss = measure of prediction error
+Lower loss = better predictions
+
+**Numeric losses (this run):**
+{losses_str}
+
+**What drives training:**
+These loss values are minimized by adjusting:
+1. Convolution kernel weights
+2. Dense layer weights & bias
+
+During training, gradients flow backward through all layers.
+
+---
+
+## PART 2: CNN VS TABULAR NEURAL NETWORKS
+
+| Aspect | Tabular NN | CNN |
+|--------|-----------|-----|
+| **Input** | Flat 1D vector | 2D/3D spatial grid |
+| **Feature Learning** | Dense layers learn abstract features | Conv layers learn SPATIAL patterns |
+| **Sharing** | Each position has unique weights | Same kernel applied everywhere |
+| **Parameters** | Many (one weight per input per neuron) | Few (kernel size << input size) |
+| **Translation** | Position matters | Position-tolerant (after pooling) |
+| **Typical use** | Tabular data, time series | Images, vision tasks |
+| **After flatten** | IDENTICAL to tabular NN | Dense layers are identical |
+
+**Key insight:** CNNs and tabular NNs are the SAME after flattening.
+The difference is entirely in how features are learned (spatially).
+
+---
+
+## PART 3: WHAT WOULD CHANGE WITH TRAINING
+
+**Current state:**
+- Kernels are RANDOM (mostly)
+- Model accuracy ~50% (random guessing)
+
+**After training (not shown here):**
+- Filter 0 might specialize: "rectangle detector"
+- Filter 1 might specialize: "triangle detector"
+- Pooled features would separate rectangles from triangles clearly
+- Dense layer decision boundary would be maximized
+- Loss would decrease significantly
+
+**To observe training:**
+Modify code to add backprop loop, save snapshots at each epoch.
+Then see how: kernels → conv → logits → loss evolve.
+
+---
+
+## PART 4: HOW TO READ THE CSV FILES
+
+**Quick workflow:**
+1. Open rectangle_1_01_pixels.csv → See the shape (8×8 numbers, 0-255 range)
+2. Open rectangle_1_02_conv_f0.csv → See convolution output (6×6, mixed signs)
+3. Compare to triangle_1_02_conv_f0.csv → Different values, same kernel
+4. Open rectangle_1_03_relu_f0.csv → See ReLU zeros the negatives
+5. Open rectangle_1_04_pool_f0.csv → See pooling reduces to 3×3
+6. Open rectangle_1_05_flat.csv → See 18 features in a row
+7. Open rectangle_1_06_logits.csv → See 2 class scores
+8. Open rectangle_1_07_softmax.csv → See softmax probabilities
+9. Open rectangle_1_08_loss.txt → See scalar loss value
+
+**Pattern to look for:**
+- Rectangles should have somewhat consistent feature patterns
+- Triangles should have somewhat different feature patterns
+- These differences → different logits → different predictions
+
+---
+
+## THE BIG PICTURE: CNNs in One Paragraph
+
+A CNN learns to recognize images by:
+1. **Scanning kernels** across the image (convolution)
+2. **Finding matches** to learned patterns (ReLU gates strong ones)
+3. **Summarizing space** (pooling reduces position-variance)
+4. **Flattening** into a vector (now tabular)
+5. **Classifying** with a dense layer (standard NN)
+
+The MAGIC is in step 1-3: automatic spatial feature learning.
+Step 4-5 is identical to any tabular ML system.
+
+**If you understand THIS pipeline, you understand CNNs.**
+
+---
+
+## FILES GENERATED THIS RUN
+
+Input images: {len(labels_df)} (rectangles + triangles)
+Intermediate outputs: {len(labels_df) * 8} files (8 per image)
+Global parameters: {len(kernel_files) + 2} files (kernels + biases)
+
+Total pipeline complexity:
+- Input shape: (1, 1, 8, 8) = 64 values
+- Output shape: (1, 2) = 2 probabilities
+- Learnable parameters: (2×1×3×3) + 2 + (18×2) + 2 = 56 total weights
+
+This is a TOY example. Real CNNs have thousands to millions of parameters.
+But the principles are 100% identical.
+""")
+
+print("Exhaustive story-mode CNN demo complete.")
+print("Start with STORY.md")

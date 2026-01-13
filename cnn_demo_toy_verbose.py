@@ -30,6 +30,10 @@ BASE_DIR = "cnn_toy_data"
 IMG_DIR = os.path.join(BASE_DIR, "images")
 CSV_OUT = "cnn_demo_outputs_verbose"
 
+# Clean up existing outputs
+import shutil
+if os.path.exists(CSV_OUT):
+    shutil.rmtree(CSV_OUT)
 os.makedirs(CSV_OUT, exist_ok=True)
 
 # -----------------------------
