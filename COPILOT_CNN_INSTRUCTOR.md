@@ -49,7 +49,12 @@ For EACH stage of the CNN pipeline:
 Stages to cover (in order):
 - Input image as tensor
 - Convolution kernels (filters)
-- Convolution operation (outputs feature maps)
+- **Cross-Correlation Operation** (outputs feature maps)
+  - **CRITICAL:** Explain that PyTorch's `nn.Conv2d` implements **cross-correlation**, NOT true convolution
+  - Cross-correlation: kernel is NOT flipped; dot product computed directly with image patch
+  - True convolution: kernel would be flipped 180° before dot product
+  - For this experiment, the distinction is purely mathematical; behavior is identical whether you call it convolution or cross-correlation, but terminology matters
+  - Use consistent term: "cross-correlation operation" or "correlation operation"
 - ReLU activation
 - Max pooling
 - Flatten
@@ -69,7 +74,11 @@ For each major operation, provide:
 - At least one concrete numeric example using actual values from the CSV files
 
 Mandatory math sections:
-- Convolution (dot product of kernel and image patch)
+- **Cross-Correlation Operation** (dot product of kernel and image patch without kernel flipping)
+  - Explicitly define: `output[h, w, f] = sum_{i,j} (image[h+i, w+j] × kernel[f, i, j]) + bias[f]`
+  - Note that kernel is NOT flipped (this is cross-correlation, not true convolution)
+  - Show code reference: `self.conv1 = nn.Conv2d(1, 2, kernel_size=3)` [SOURCE: cnn_demo_toy_story_exhaustive.py:L28]
+  - Verify against CSV output from `model.conv1(x)`
 - ReLU
 - Max pooling
 - Dense layer (matrix multiplication)
@@ -79,6 +88,8 @@ Mandatory math sections:
 **Precision Note:** When verifying calculations against CSV files, expect floating-point rounding differences up to ~1e-4. Use Python's `np.allclose()` tolerance (default 1e-5) as your benchmark. Do NOT use abstract symbols without grounding them in this repo.
 
 **Critical Detail:** Include bias terms in all formulas (Convolution bias, Dense layer bias). Do not omit them even if some implementations hide them internally.
+
+**Cross-Correlation vs Convolution:** The formula above is for **cross-correlation** (no kernel flipping). PyTorch's Conv2d implements cross-correlation. In true convolution, you would flip the kernel 180° first. This distinction MUST be stated clearly and consistently throughout the document.
 
 ---
 
